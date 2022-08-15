@@ -1,0 +1,921 @@
+rm(list=ls())
+options(stringsAsFactors = F)
+setwd("~/project/Cdc20_Figure1")
+library("BiocParallel")
+register(SnowParam(4))
+
+library(DESeq2)
+library(tidyverse)
+
+library(edgeR)
+library(gplots)
+library(stringr)
+#导入表达矩阵 #expr_df是有行名的数据框
+load("data/mRNA_sybol_exprSet_PRAD.Rda")
+load("data/clinical.Rda")
+expr_df <- mRNA_exprSet
+##构建metadata文件
+metadata <- data.frame(sample_id = colnames(expr_df))
+ ##用table这个函数统计一下样本的分类
+ table(substring(metadata$sample_id,14,15))
+
+ #按照癌症和正常样品数目修???
+ sample <- ifelse(substring(metadata$sample_id,14,15)=="01","cancer","control")
+ sample <- ifelse(substring(metadata$sample_id,14,15)=="06","cancer",sample)
+ table(sample)
+ metadata$sample <- as.factor(sample)
+
+ ### 去除癌旁组织和重复组???
+ library(dplyr)
+library(tibble)
+ rt <- mRNA_exprSet %>% 
+   #转置
+   t() %>% 
+   #转为数据???
+   as.data.frame() %>% 
+   rownames_to_column("sample")
+ ### 添加分组信息，查看分???
+
+ table(substring(rt$sample,14,15))
+ c <- substring(rt$sample,14,15)!= "11"
+ 
+ rt1 <- cbind(c,rt)
+ rt1$c
+ rt2 <- filter(rt1, c=="TRUE")
+ rt3<- filter(rt1, c=="FALSE")
+ exprSet_cancer <- rt2[,-1]
+ exprSet_normal <- rt3[,-1]
+ save(exprSet_cancer,exprSet_normal, file = "data/PRAD_cancer_normal_exprSet.Rda")
+ #write.table(exprSet_cancer, file="data/exprSet_cancer.txt",sep="\t", quote=F,row.names=T)
+ 
+ load("data/PRAD_cancer_normal_exprSet.Rda")
+ 
+ geneint <- exprSet_cancer$CDC20
+ exprSet_cancer <-  cbind(geneint,rt2)
+ #降序
+ exprSet_cancer_order <- exprSet_cancer%>% arrange(geneint) # 升序
+        #arrange(desc(geneint)) # 降序
+   #rt1 <- rt1[order(geneint),]#升序
+   #rt1 <- rt1[order(-geneint),]#降序
+ #sampleid <- row.names(rt1)
+ rt4 <- exprSet_cancer$CDC20
+ rt4 <- exprSet_cancer_order[,c("sample","CDC20")]
+ CDC20_and_id <- rt4
+ save(CDC20_and_id, file = "data/CDC20_and_id.Rda")
+write.csv(CDC20_and_id,file = "data/CDC20_and_id.csv")
+load("data/CDC20_and_id.Rda")
+
+##########################################
+#绘制柱状图比较差异，也可用graphpad绘制
+##########################################
+library(ggplot2)
+#数据复用
+data=CDC20_and_id
+#提取顺序信息
+level <- data$sample
+#定于顺序level
+data<-within(data,{
+  sample<-factor(sample,levels=level)
+})
+#作图
+ggplot(data=data,mapping=aes(x=sample,y=CDC20,group=factor(1)))+
+  geom_bar(stat="identity",, fill="steelblue")+labs(x = 'Patients',y = 'CDC20 mRNA expression', title = 'CDC20 expression in PRAD') 
++theme(axis.title =element_text(size = 16),axis.text =element_text(size = 14, color = 'black'),
+       plot.title =element_text(hjust = 0.5, size = 20))
+
+
+
+
+
+
+ ##制作一个CDC20表达???100和后100的标准表达矩阵数???
+ data1 <- rt4[-c(101:399),]
+ 
+ rt2 = rt2 [,-1]
+ rt2 <- column_to_rownames(rt2,"sample")
+ data2 <-  rownames_to_column(rt2,"sample")
+ 
+ 
+ data3 <- left_join(data1,data2,by = "sample")
+ 
+ exprset_CDC20200 <- data3[,-2]
+ test= exprset_CDC20200[1:5,1:5]
+ save(exprset_CDC20200, file = "data/exprset_PRAD_CDC20_200.Rda")
+ 
+ data1$submitter_id <- substring(data1$sample,1,12)
+ 
+ 
+ data4<- left_join(data1,clinical,by = "submitter_id")
+ test= data4[1:5,1:5]
+ clinical_CDC20_200 <- data4[,-3]
+ save(clinical_CDC20_200, file = "data/clinical_CDC20_200.Rda")
+ 
+ ##制作一个CDC20表达???250和前249的标准表达矩阵数???
+ data1 <- CDC20_and_id
+ data2 <-  exprSet_cancer
+ 
+ 
+ data3 <- left_join(data1,data2,by = "sample")
+ 
+ exprset_CDC20_increase <- data3[,-2]
+ 
+ test= data3[1:5,1:5]
+ 
+ exprset_CDC20_499 <- exprset_CDC20_increase[,-c(2,3)]    
+ save(exprset_CDC20_499, file = "data/exprset_CDC20_increase.Rda")
+ 
+ data1$submitter_id <- substring(data1$sample,1,12)
+ 
+ 
+ data4<- left_join(data1,clinical,by = "submitter_id")
+ test= data4[1:5,1:5]
+ clinical_CDC20_539 <- data4[,-3]
+ save(clinical_CDC20_539, file = "data/clinical_CDC20_539.Rda")
+ #至此得到CDC20低表达和高表达的转录组及临床数据，后续分???
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ rt2 <- t(rt1)
+ rt2 <- rt2[-1,]
+ # 读入的数据应该是数值型，但是默认为字符型，将其转换成数值???
+ dimnames=list(rownames(exp),colnames(exp))
+ data=matrix(as.numeric(as.matrix(exp)),nrow=nrow(exp),dimnames=dimnames)
+ # 行名表示基因，但是有重的情况，需要去重，取的是均值???
+ data=avereps(data)
+ # 去除低表达或者不表达的基因数据???
+ #data1=data[rowMeans(data)>1,]
+ data1 = data[rowSums(data)>1,]
+ #处理对象中缺失的???
+ data1=na.omit(data1)
+ #banflowg <- data1[,c(1:100)]
+ #banfhighg <- data1[,c(414:513)]
+ data1 <- data1[,-c(101:413)]
+ dim(data1)
+ ## 对数据进行分组normal= dim(sampl_NT),tumor = dim(sampl_TP)
+ group_list=c(rep("low",100),rep("high",100))  #按照癌症和正常样品数目修???
+ group_list=factor(group_list, levels = c("high","low"),ordered = F)  
+ #强制限定顺序
+ group_list <- relevel(group_list, ref = "low")
+ ###构建模型
+ design <- model.matrix(~group_list)
+ #design <- model.matrix(~0+factor(group_list))
+ y <- DGEList(counts=data1,group=group_list)
+ # 估计差异程度
+ y <- calcNormFactors(y)
+ y <- estimateCommonDisp(y)
+ y <- estimateTagwiseDisp(y)
+ # 进行检???
+ et <- exactTest(y,pair = c("low","high"))
+ topTags(et)
+ ordered_tags <- topTags(et, n=100000)
+ allDiff=ordered_tags$table
+ allDiff=allDiff[is.na(allDiff$FDR)==FALSE,]
+ 
+ #差异基因输出
+ library(tibble)
+ library(dplyr)
+ padj <- 0.05    #设定筛选条???
+ foldChange <- 1 #设定筛选条???
+ diff <- allDiff[order(allDiff$FDR),]#按照差异性大小排???
+ #write.table(diff,file="diffall_edg_RTtocont_A549.xls",sep="\t",quote=F)
+ save(diff,file = "diffall_edg_banfhightolow.Rda")
+ diffSig = diff[(diff$FDR < padj & (diff$logFC>foldChange | diff$logFC<(-foldChange))),]
+ #write.table(diffSig, file="diffSig_edg_RTtocont_A549.xls",sep="\t",quote=F)
+ diffUp = diff[(diff$FDR < padj & (diff$logFC>foldChange)),]
+ #write.table(diffUp, file="up1_edg_LIHC.xls",sep="\t",quote=F)
+ diffDown = diff[(diff$FDR < padj & (diff$logFC<(-foldChange))),]
+ #write.table(diffDown, file="down1_edg_LIHC.xls",sep="\t",quote=F)
+ dim(diffUp)
+ dim(diffDown)
+ 
+ #校正数据并输???
+ newData=y$pseudo.counts
+ normalizeExp=rbind(id=colnames(newData),newData)
+ save(normalizeExp,file = "LUAD_Expr_edg_banfhightolow.Rda")
+ write.table(normalizeExp,file="normalizeExp_edg_RTtocont_A549.txt",sep="\t",quote=F,col.names=F)  
+ #输出差异基因校正后的表达值（diffmRNAExp.txt???
+ diffExp=rbind(id=colnames(newData),newData[rownames(diffSig),])
+ write.table(diffExp,file="diffExp_edg_RTtocont_A549.txt",sep="\t",quote=F,col.names=F)   
+ 
+ 
+ ###火山图进阶版
+ if(T){
+   library(ggplot2)
+   library(ggrepel)
+   library(dplyr)
+   logFoldChange=1
+   adjustP=0.05
+   #dif<-read.table("alldifgenetab.txt",sep='\t',header=T,row.names=1)
+   #load(file = "difall_syb_nc.Rda")
+   dif <- diff        #调用差异检验数???
+   dif <- dif[order(- abs(dif$logFC)),]#按照差异性大小排???            
+   xmax<-max(dif$logFC)     #定义x???
+   ymax<-max(-log10(dif$FDR))+1     #定义y???
+   dif$sig = as.factor(ifelse(dif$FDR < adjustP & abs(dif$logFC) > logFoldChange,                               
+                              ifelse(dif$logFC > logFoldChange,"Up", "Down"), "Not")) #定义差异基因
+   
+   #画图
+   a=ggplot(dif,aes(logFC ,-log10(FDR))) 
+   b=a+ geom_point(aes(color =sig))+xlim(-xmax,xmax) + ylim(0,ymax)+ 
+     labs(title="Volcano_plot_iRTLtocontL",x="log2FC", y="-log10(adj.P)")+
+     theme(plot.title=element_text(hjust=0.5))+
+     scale_color_manual(values =c("green","black", "red"))
+   c=b+geom_vline(xintercept = 0,lty=2)+
+     geom_vline(xintercept = logFoldChange,lty=2)+
+     geom_vline(xintercept = -logFoldChange,lty=2)+
+     geom_hline(yintercept = -log10(adjustP),lty=2)
+   
+   #在火山图中显示特定基???
+   #dif$name1 <- dif$gene_name
+   dif$gene_name <- rownames(dif)
+   dif$name1 <- dif$gene_name #$gene_name
+   idx <- dif$name1 %in% c("ASPM","TXNIP","CLDN2")
+   dif$name1[!idx] <- NA
+   dif1 = dif[complete.cases(dif$name1),]
+   d=c+theme_bw()+
+     theme(plot.title=element_text(hjust=0.5),
+           #panel.border = element_blank(),
+           #panel.grid.major = element_blank(), 
+           #panel.grid.minor = element_blank(),   
+           axis.line = element_line(colour = "black")) +
+     geom_point(data = dif1 ,alpha=0.8, size=3,col="blue") +
+     geom_text_repel(data = dif1, aes(label=gene_name),col="blue",alpha = 0.8)
+   
+   #在火山图中显示cutoff基因
+   e=c+theme(plot.title = element_text(hjust = 0.4))+
+     theme_bw()+
+     theme(#panel.border = element_blank(),
+       #panel.grid.major = element_blank(), 
+       #panel.grid.minor = element_blank(),   
+       axis.line = element_line(colour = "black")) +
+     geom_point(data=subset(dif, abs(logFC) > 3),alpha=0.8, size=3,col="blue")+
+     geom_text_repel(data=subset(dif, abs(logFC) > 3), aes(label=gene_name),col="black",alpha = 0.8)
+   
+   pdf("Volcano3__hightolow_BANF1.pdf")
+   c
+   dev.off()    
+ }
+ 
+ ###热图   
+ if(T){   
+   library(pheatmap)
+   #代码复用
+   #rt= diffExp[-1,]
+   rt <- newData[rownames(diffSig),]
+   choose_gene=head(rownames(rt),100)
+   rt1 <- rt[choose_gene,]#提取???100的表达矩???
+   #rt1 = log2(rt+1)
+   rt1 = log10(rt1+0.001)
+   #rt1[rt>15]=15
+   SampleType=group_list  #定义分组信息
+   #SampleType=c(rep("Normal",61),rep("Tumor",69))  #修改正常和癌症样品数???
+   names(SampleType)=colnames(rt)
+   ann=as.data.frame(SampleType)
+   
+   #画图
+   pdf(file="heatmap4_hightolow_BANF1.pdf")
+   pheatmap(rt1,                      #热图的数???
+            annotation=ann,
+            annotation_legend=TRUE,  # 显示注释
+            color = colorRampPalette(c("blue", "white","red"))(50), #设定颜色
+            cluster_rows =T,        #行聚???
+            cluster_cols = F,     #列聚类，可以看出样本之间的区分度
+            show_rownames = T,       # 显示行名
+            show_colnames = T,       # 显示列名
+            scale="row",             #以行来标准化，这个功能很不错
+            fontsize_row=3,          #行名字体大小
+            fontsize_col=5)          #列名字体大小
+   dev.off()
+ }   
+ ######step1 GO/KEGG定性分???#############
+ #加载R??? 
+ library(stringr)
+ library(AnnotationDbi)
+ library(clusterProfiler)
+ library(org.Hs.eg.db)
+ library(enrichplot)
+ library(ggplot2)
+ #加载数据
+ #load("D:/training/LZY/iRTL_vs_contL/difall_edg_iRTLtocontL.Rda")
+ View(diff)
+ 
+ data <- diff
+ #行名变列
+ data=cbind(gene_id=row.names(data), data)
+ row.names(data)=NULL
+ #筛选保留p< 0.05 & 按logFC绝对值选前500个基因的基因
+ cor_data_sig <- data %>% 
+   #filter(FDR < 0.05) %>% 
+   arrange(desc(abs(logFC)))
+ # %>% dplyr::slice(1:500)    #go-kegg取Top500, GSEA只要排好序就ok
+ #这是取出的相关性结???
+ gene <- str_trim(cor_data_sig$gene_id,'both')
+ #基因名称转换
+ gene = bitr(gene, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = "org.Hs.eg.db")
+ #去重
+ gene <- dplyr::distinct(gene,SYMBOL,.keep_all = TRUE)
+ 
+ gene_df <- data.frame(LogFC = cor_data_sig$logFC,
+                       SYMBOL= cor_data_sig$gene_id)
+ gene_df <- merge(gene_df, gene, by = "SYMBOL")
+ ###genelist三部???
+ #1—获取logFC
+ genelist <- gene_df$LogFC
+ #2-命名
+ names(genelist) = gene_df$ENTREZID
+ #3-排序
+ genelist = sort(genelist, decreasing = TRUE)
+ 
+ 
+ ###step2 gseGO_gseKEGG_analysis
+ 
+ #gseGO
+ ego2 <- gseGO(geneList     = genelist,
+               OrgDb        = org.Hs.eg.db,
+               ont          = "all",
+               #nPerm        = 1000,
+               #minGSSize    = 10,
+               #maxGSSize    = 500,
+               pvalueCutoff = 0.05,
+               verbose      = FALSE)
+ ego_result <- setReadable(ego2, OrgDb = org.Hs.eg.db)
+ ego_result_df <- as.data.frame(ego_result)
+ 
+ #气泡???
+ go <-dotplot(ego2, split="ONTOLOGY")+ facet_grid(ONTOLOGY~., scale="free")##气泡???
+ #波浪???
+ ridgeplot(ego2)
+ #gesa???
+ gseaplot2(ego2, geneSetID = "GO:0098982", title = ego2$Description[19] ,pvalue_table = TRUE)
+ 
+ #gseKEGG
+ ego1 <- gseKEGG(geneList      = genelist,
+                 organism     = 'hsa',
+                 #nPerm        = 1000,
+                 #minGSSize    = 10,
+                 #maxGSSize    = 500,
+                 pvalueCutoff = 0.05,
+                 verbose      = FALSE)
+ ego1_result_df <- as.data.frame(ego1)
+ 
+ keg <- dotplot(ego1, showCategory =15) #, split = ".sign"  +facet_grid(".sign" ))
+ gseaplot2(ego1, geneSetID = "hsa00190", title = ego1$Description[10] ,pvalue_table = TRUE)
+ #gseDO
+ ego3 <- gseDO(gene        = genelist,
+               exponent    = 1,
+               minGSSize   = 10,
+               maxGSSize   = 500,
+               pAdjustMethod = "BH",
+               pvalueCutoff = 0.05,
+               verbose      = FALSE)
+ ego3_result_df <- as.data.frame(ego3)
+ dotplot(ego3, showCategory =12)             
+ gseaplot2(ego3, geneSetID = "DOID:162", title = ego3$Description[1] ,pvalue_table = TRUE)
+ #########
+ #########GSEA_ANALYSIS###########
+ library(msigdbr)
+ library("DOSE")
+ library(enrichplot)
+ #查看物种
+ #  msigdbr_show_species()
+ msigdbr_species()
+ #选择Human
+ m_df <- msigdbr(species = "Homo sapiens")
+ head(m_df, 2) 
+ #查看gene sets
+ genesets  = msigdbr_collections()	
+ #调取基因基category = "H"   "C2::CP"    "C5::GO"  subcategory = "CP::KEGG"
+ m_t2g <- msigdbr(species = "Homo sapiens", category = "C2",subcategory = "CP:KEGG") %>% 
+   dplyr::select(gs_name, entrez_gene)
+ #可???
+ m_t2g <- msigdbr(species = "Homo sapiens", category = "C5") %>% 
+   dplyr::select(gs_name, entrez_gene)
+ #可???
+ m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>% 
+   dplyr::select(gs_name, entrez_gene)
+ head(m_t2g)
+ #GSEA_MSigDb 
+ em2 <- GSEA(genelist, TERM2GENE = m_t2g)
+ em2_result <- as.data.frame(em2) %>%
+   dplyr::filter(abs(NES)>1.5 & pvalue < 0.05 & qvalues < 0.25)
+
+sort_em2_result <- em2_result%>% 
+  arrange(desc(abs(NES)))
+ #or arrange(desc(abs(enrichmentScore)))
+ 
+ #气泡???
+ HK <- dotplot(em2,showCategory=10,split=".sign")+facet_grid(~.sign)
+ # HK <- dotplot(em2,showCategory=10,split=".sign")+facet_wrap(~.sign, scales = "free")
+ pdf(file="3_HALLMAEK_HightolowofBANF1.pdf",width=8,height=6)
+ HK
+ dev.off()
+ #GSEA???
+ em2intrest <- 7
+ #图展???1
+ emgsea <- gseaplot2(em2, 
+                     geneSetID = sort_em2_result$ID[em2intrest], 
+                     title = sort_em2_result$Description[em2intrest],
+                     pvalue_table = TRUE)
+ 
+ #ego <- gseaplot2(em2, row.names(sort_ego_df)[1:5],base_size = 10)
+ pdf(file="em2intrest.pdf",width=10,height=6)
+ emgsea
+ dev.off()
+ #图展???2
+ p <- gseaplot2(em2,
+                geneSetID = sort_em2_result$ID[em2intrest],  
+                #title = sort_ego_df$Description[6] ,
+                ES_geom = "line",
+                pvalue_table = F)+
+   annotate('text', x = 0.87, y = 0.85, color = 'red', fontface = 'bold', size = 4,
+            label = paste0('NES=',round(sort_em2_result$NES[em2intrest],1),'\n',
+                           'p.adj=',round(sort_em2_result$ID[em2intrest],2)))+
+   labs(title = sort_em2_result$Description[em2intrest])+theme(plot.title = element_text(hjust =  0.5))
+ pdf(file="em2intrest.pdf",width=8,height=6)
+ p
+ dev.off()
+ 
+ ###### 通路热图
+ library(pheatmap) 
+ 
+ entreid_in_set <- unlist(strsplit(sort_ego_df$core_enrichment[egointrest],split = '/',fixed = T))
+ gene_in_set <- dplyr::inner_join(rt, data.frame('entrezIDs'= entreid_in_set,stringsAsFactors =  F),
+                                  by = 'entrezIDs')[,c('SYMBOL','entrezIDs','logFC')]
+ gene_in_set <- gene_in_set[order(gene_in_set$logFC, decreasing = T),]
+ sub_expr_norm <- dataH_L[gene_in_set$SYMBOL,]
+ 
+ rt <- t(sub_expr_norm)
+ Type1 = Type[row.names(rt),]
+ colnames(Type1)=c("cluster","levels","Subtype")
+ cluster=data.frame('Subtype'= Type1$Subtype)
+ row.names(cluster) <- row.names(Type1)
+ 
+ pdf(file = paste0("Heatmap of enriched genes in ",sort_ego_df$Description[egointrest]),".pdf")
+ pdf("4_3_estimateHM.pdf",height=9,width=9)
+ p2 <- pheatmap(sub_expr_norm, 
+                annotation=cluster, 
+                annotation_colors = list(Subtype= c(Immunity_H = 'orange', Immunity_L = 'grey')),
+                #color = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+                color = colorRampPalette(c("blue", "white", "red"))(50),
+                main = paste0('Heatmap of enriched genes within',sort_ego_df$Description[egointrest]),
+                cluster_cols =F,
+                fontsize=8,
+                fontsize_row=8,
+                scale="row",
+                show_colnames=F,
+                fontsize_col=3)
+ pdf(file="8_2_Heatmap_gseaGO_interest.pdf",width=8,height=12)
+ p2
+ dev.off()
+ 
+ 
+ 
+ 
+ 
+ 
+ #GSEA???
+ HALLMARK.id = "HALLMARK_OXIDATIVE_PHOSPHORYLATION"
+ pdf()
+ OP <- gseaplot2(em2, geneSetID = HALLMARK.id, title = HALLMARK.id, pvalue_table = TRUE)
+ gseaplot(em2, geneSetID = HALLMARK.id, title = HALLMARK.id, pvalue_table = TRUE)
+ 
+ pdf(file="HALLMARK_OXIDATIVE_PHOSPHORYLATION_BANF1HtoL.pdf",width=10,height=6)
+ OP
+ dev.off()
+ 
+ HALLMARK.id = "HALLMARK_INFLAMMATORY_RESPONSE"
+ INA <- gseaplot2(em2, geneSetID = HALLMARK.id, title = HALLMARK.id, pvalue_table = TRUE)
+ pdf(file="HALLMARK_INFLAMMATORY_RESPONSE_BANF1HtoL.pdf",width=10,height=6)
+ INA
+ dev.off()
+ 
+ HALLMARK.id = "HALLMARK_INTERFERON_GAMMA_RESPONSE"
+ ING <- gseaplot2(em2, geneSetID = HALLMARK.id, title = HALLMARK.id, pvalue_table = TRUE)
+ pdf(file="HALLMARK_INTERFERON_GAMMA_RESPONSE_PPARGC1A.pdf",width=10,height=6)
+ ING
+ dev.off()
+ #???5条通路   
+ path <- c("HALLMARK_DNA_REPAIR",
+           "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+           "HALLMARK_ALLOGRAFT_REJECTION",
+           "HALLMARK_INFLAMMATORY_RESPONSE",
+           "HALLMARK_UV_RESPONSE_DN"
+           )
+ gse1<- gseaplot2(em2, 
+           path, 
+           subplots = c(1,2), 
+           pvalue_table = TRUE)
+ ggsave(plot=gse1, filename="1_2GSEA_HK_key-BANF1highvslow.pdf",width = 10, height = 6)
+ 
+ #波浪???
+ ridgeplot(em2, showCategory=15)
+ 
+ write.table(em2_result,file="PPARGC1A_cor_sig_GSEAH_results.txt",sep="\t",quote=F,col.names=T)
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+###构建dds对象，第一列有名称，则tidy=TRUE，否则如果gene-id是行名，则为FALSE
+dds <-DESeqDataSetFromMatrix(countData=expr_df, 
+                             colData=metadata, 
+                             design=~sample,
+                             tidy=FALSE)
+  #看有多少???
+nrow(dds)
+  #查看是否有行???
+rownames(dds)
+###数据过滤——删掉在所有样本中counts数之和小于等???1的基???
+dds <- dds[rowSums(counts(dds))>1,]
+nrow(dds)
+ #dds1 <- dds[rowMeans(counts(dds))>1,]
+ #nrow(dds1)
+
+#Deseq2 计算
+dds <- DESeq(dds)
+ #数据校正，样本间可以比较-可???
+ #normalized_counts <- as.data.frame(counts(dds, normalized=TRUE))
+
+###vst标准化——适用于样本数大于30，若小于30，则用rlog标准???
+vsd <- vst(dds, blind = FALSE)    #vst标准???
+
+RNA_expr_vst <- as.data.frame(assay(vsd))
+save(RNA_expr_vst, file = paste(cancer_type,"RNAseq_vst_n2t_2_1.Rda",sep = "-"))  #重点1
+
+#分层聚类画图检查样本分组是否合???-可???
+sampleDists <- dist(t(assay(vsd)))  #计算样本间的距离
+hc <- hclust(sampleDists, method = "ward.D2")
+plot(hc, hang = -1)
+#PCA分析
+p <- plotPCA(vsd,"sample")
+pdf(paste(cancer_type, "Volcan_2_1.pdf",sep = "-"))
+p
+dev.off()  
+
+######step4差异分析#############
+
+#logFC校正
+contrast <- c("sample", "tumor", "normal")
+dd1 <- results(dds, contrast=contrast, alpha = 0.05)
+plotMA(dd1, ylim=c(-2,2))
+# lfcShrink矫正
+dd2 <- lfcShrink(dds, coef= 2 , type="apeglm", parallel=TRUE)
+plotMA(dd2, ylim=c(-2,2))
+
+ #差异分析的结???
+ summary(dd2, alpha = 0.05)
+#差异分析结果
+res <- dd2 %>% data.frame() %>% rownames_to_column("gene_id")
+resOrdered <- res[order(res$padj),]#按照差异性大小排???
+diffall <- resOrdered 
+save(diffall, file = paste(cancer_type,"difall_RNA_2_2.Rda",sep = "-"))    #重点2
+
+#################
+#输出差异基因校正后的表达值（diffmRNAExp.txt???
+padj <- 0.05
+logfc <- 1
+#diffSig = diffall[(diffall$padj < padj & (diffall$log2FoldChange>logfc | diffall$log2FoldChange<(-logfc))),]  
+#newData <- RNA_expr_vst
+#diffExp <-newData[diffSig[,1],]
+#diffExp <-diffExp %>% rownames_to_column("gene_id")   
+#write.table(diffExp,file="diffExp_LIHC.txt",sep="\t",quote=F,col.names=F)  
+#######单基因差异结果检验_可???#############
+plotdata <- plotCounts(dds, gene = which.min(res$padj), intgroup=c("sample"),returnData = T)
+library(ggplot2)
+ggplot(plotdata,aes(x=sample,y=count,col=sample))+
+  geom_boxplot()+
+  labs(title="",x="group", y="normalized_count")+
+  theme_bw()+
+  theme(legend.position=("top"))
+
+
+
+
+######Step5--基因注释###############################
+#导入注释文件
+setwd("D:/R_code")
+library(tibble)
+load(file = "gtf_df.Rda")
+setwd("D:/training/BANF_LUAD")
+#####################################
+#基因ID转换
+newData <- expr_df %>% rownames_to_column("gene_id")      
+#mRNA_expr#####
+mRNA_expr <- gtf_df %>% 
+  dplyr::filter(type=="gene",gene_biotype=="protein_coding") %>% #筛选gene,和编码指???
+  dplyr::select(c(gene_name,gene_id,gene_biotype)) %>% 
+  dplyr::distinct() %>% #删除多余???
+  dplyr::inner_join(newData,by ="gene_id") 
+#去除重复基因去na.
+expr <- mRNA_expr
+expr <- expr[!duplicated(expr$gene_name),]
+#expr <- na.omit(expr)
+#保留gene_symbol
+mRNA_expr <- subset(expr,select = -c(gene_id,gene_biotype))
+#保存
+save(mRNA_expr,file = paste(cancer_type,"Expr_mRNA_count.Rda",sep = "-"))    
+
+#write.csv(mRNA_expr, file = ("mRNA_expr_vst.csv", sep = "-"))
+write.table(mRNA_expr, file="mRNA_expr_LUAD.txt",sep="\t",quote=F)
+#######单基因差异结果检验_可???#############
+###配对展示？？
+
+
+
+
+###step6 差异基因结果保存 mRNA_difall####
+difall_PC <- gtf_df %>% 
+  dplyr::filter(type=="gene",gene_biotype=="protein_coding") %>% #筛选gene,和编码指???
+  dplyr::select(c(gene_name,gene_id,gene_biotype)) %>% 
+  dplyr::inner_join(diffall,by ="gene_id") 
+# tidyr::unite(gene_id,gene_name,gene_id,gene_biotype,sep = " | ")
+#去除重复基因
+difall_PC <- difall_PC[!duplicated(difall_PC$gene_name),]
+#padj出现na 是因为矫正P值时将row having a low mean narmalized counts值被filtered
+difall_PC <- na.omit(difall_PC)
+
+#保留gene_symbol
+difall_PC <- subset(difall_PC,select = -c(gene_id,gene_biotype))
+#排序
+difall_PC <- difall_PC[order(difall_PC$padj),] 
+save(difall_PC,file = "2_4_difall_mRNA_LUAD.Rda")
+#查看上调下调基因
+diff1 = difall_PC
+difSig_PC = diff1[(diff1$padj < padj & (diff1$log2FoldChange>logfc | diff1$log2FoldChange<(-logfc))),]  
+write.table(difSig_PC, file="2_5_difSig_PC_LUAD.txt",sep="\t",quote=F)
+dim(diff1[(diff1$padj < padj & (diff1$log2FoldChange > logfc)),])
+dim(diff1[(diff1$padj < padj & (diff1$log2FoldChange < (-logfc))),])
+
+#mRNA_diffSig_exp##
+loc<-match(difSig_PC$gene_name,mRNA_expr$gene_name)
+diffExp_PC<-mRNA_expr[loc,]
+save(diffExp_PC ,file = "2_5_difExp_mRNA_LUAD.Rda")
+write.table(diffExp_PC, file="2_5_difExp_mRNA_LUAD.txt",sep="\t",quote=F)
+############lncRNA#################################
+##########lncRNA_expr
+lncRNA_expr <- gtf_df %>% 
+  dplyr::filter(type=="transcript",transcript_biotype == "lncRNA") %>% #注意这里是transcript_biotype
+  dplyr::select(c(gene_name,gene_id,transcript_biotype)) %>% 
+  dplyr::distinct() %>% #删除多余???
+  dplyr::inner_join(newData,by ="gene_id") 
+#去除重复基因
+expr <- lncRNA_expr
+expr <- expr[!duplicated(expr$gene_name),]
+#保留gene_symbol
+lncRNA_expr <- subset(expr,select = -c(gene_id,transcript_biotype))
+#保存
+save(lncRNA_expr,file = "Expr_lnRNA_LUAD.Rda")
+
+#lnRNA_difall#####
+difall_nc <- gtf_df %>% 
+  dplyr::filter(type=="transcript",transcript_biotype == "lncRNA") %>% #注意这里是transcript_biotype
+  dplyr::select(c(gene_name,gene_id,transcript_biotype)) %>% 
+  dplyr::distinct() %>% #删除多余???
+  dplyr::inner_join(diffall,by ="gene_id") 
+#保留gene_symbol
+#去除重复基因
+difall_1 <- difall_nc[!duplicated(difall_nc$gene_name),]
+#保留gene_symbol
+difall_1 <- subset(difall_1,select = -c(gene_id,transcript_biotype))
+#排序
+difall_nc <- difall_1[order(difall_1$padj),] 
+save(difall_nc,file = "difall_syb_nc.Rda")
+
+#查看上调下调基因
+diff2=difall_nc
+difSig_nc = diff2[(diff2$padj < padj & (diff2$log2FoldChange>logfc | diff2$log2FoldChange<(-logfc))),]  
+write.table(difSig_nc, file="difSig_nc_LUAD.txt",sep="\t",quote=F)
+dim(diff2[(diff2$padj < padj & (diff2$log2FoldChange > logfc)),])
+dim(diff2[(diff2$padj < padj & (diff2$log2FoldChange < (-logfc))),])
+
+#lnRNA_difSig_exp
+loc<-match(difSig_nc$gene_name,lncRNA_expr$gene_name)
+diffExp_nc<-mRNA_expr[loc,]
+
+save(diffExp_nc,file = "difexp_nc_syb.Rda")
+write.table(diffExp_nc, file="difexp_nc_LUAD.txt",sep="\t",quote=F)
+################################
+###火山图进阶版
+if(T){
+  #清空当前环境的所有变???
+  rm(list=ls())
+  options(stringsAsFactors = F)
+  setwd("D:/training/2_diff")
+  library(ggplot2)
+  library(ggrepel)
+  library(dplyr)
+  logFoldChange=1
+  adjustP=0.05
+  #dif<-read.table("alldifgenetab.txt",sep='\t',header=T,row.names=1)
+  load(file = "2_4_difall_mRNA_LUAD.Rda")
+  dif <- difall_PC        #调用差异检验数???
+  dif <- dif[order(- abs(dif$log2FoldChange)),]#按照差异性大小排???            
+  xmax<-max(dif$log2FoldChange)     #定义x???
+  ymax<-max(-log10(dif$padj))+1     #定义y???
+  dif$sig = as.factor(ifelse(dif$padj < adjustP & abs(dif$log2FoldChange) > logFoldChange,                               
+                             ifelse(dif$log2FoldChange > logFoldChange,"Up", "Down"), "Not")) #定义差异基因
+  
+  #画图
+  a=ggplot(dif,aes(log2FoldChange ,-log10(padj))) 
+  b=a+ geom_point(aes(color =sig))+xlim(-xmax,xmax) + ylim(0,ymax)+ 
+    labs(title="Volcano plot",x="log2FC", y="-log10(adj.P)")+
+    theme(plot.title=element_text(hjust=0.5))+
+    scale_color_manual(values =c("green","black", "red"))
+  c=b+geom_vline(xintercept = 0,lty=2)+
+    geom_vline(xintercept = logFoldChange,lty=2)+
+    geom_vline(xintercept = -logFoldChange,lty=2)+
+    geom_hline(yintercept = -log10(adjustP),lty=2)
+  
+  #在火山图中显示特定基???
+  gene <- c("UBE2T","PTPN21")
+  dif$name1 <- dif$gene_name
+  idx <- dif$name1 %in% gene
+  dif$name1[!idx] <- NA
+  dif1 = dif[complete.cases(dif$name1),]
+  d=c+theme_bw()+
+    theme(plot.title=element_text(hjust=0.5),
+          #panel.border = element_blank(),
+          #panel.grid.major = element_blank(), 
+          #panel.grid.minor = element_blank(),   
+          axis.line = element_line(colour = "black")) +
+    #geom_text_repel(aes(label=dif$name1),alpha = 0.8)+
+    geom_point(data = dif1 ,alpha=0.8, size=3,col="blue") +
+    geom_text_repel(data = dif1, aes(label=gene_name),col="blue",alpha = 0.8)
+  pdf("2.6d_Volcano_PC_LUAD.pdf")
+  d
+  dev.off() 
+  
+  
+  #在火山图中显示cutoff基因
+  e=c+theme(plot.title = element_text(hjust = 0.4))+
+    theme_bw()+
+    theme(#panel.border = element_blank(),
+      #panel.grid.major = element_blank(), 
+      #panel.grid.minor = element_blank(),   
+      axis.line = element_line(colour = "black")) +
+    geom_point(data=subset(dif, abs(log2FoldChange) > 3),alpha=0.8, size=3,col="blue")+
+    geom_text_repel(data=subset(dif, abs(log2FoldChange) > 3), aes(label=gene_name),col="black",alpha = 0.8)
+  
+  pdf("Volcano5_PC_LUAD.pdf")
+  e
+  dev.off()    
+}
+######################################
+TCGAVisualize_volcano(allDiff$logFC, allDiff$FDR,
+                      filename = "TCGA_LUAD_DEG_Analysis_lncRNA.pdf", xlab = "logFC",
+                      names = rownames(allDiff), show.names = "highlighted",
+                      x.cut = 1, y.cut = 0.01, 
+                      highlight = rownames(allDiff)[which(diff$FDR < 0.001 &(abs(allDiff$logFC) >= 6))],
+                      highlight.color = "orange")
+
+###
+###热图   有问???20201019
+if(T){   
+  #清空当前环境的所有变???
+  rm(list=ls())
+  options(stringsAsFactors = F)
+  setwd("D:/training/2_diff")
+  library(pheatmap)
+  #代码复用
+  #rt= diffExp[-1,]
+  load(file = "difexp_PC_syb.Rda")
+  rt <- diffExp_PC
+  #去除重复基因
+  #rt <- rt[!duplicated(rt$gene_name),]
+  #处理对象中缺失的???
+  #rt=na.omit(rt)
+  
+  #列变行名
+  row.names(rt) <- rt$gene_name
+  rt <- rt[,-1]
+  # rt <- difExp_PC
+  choose_gene=head(rownames(rt),100)
+  rt1 <- rt[choose_gene,]#提取???100的表达矩???
+  #rt1 = log2(rt+1)
+  rt1 = log10(rt1+0.001)
+  #rt1[rt1>15]=15
+  
+  #SampleType=group_list  #定义分组信息
+  metadata <- data.frame(sample_id = colnames(rt1))
+  ##用table这个函数统计一下样本的分类
+  table(substring(metadata$sample_id,14,15))
+  ##分组
+  SampleType=c(rep("Normal",59),rep("Tumor",513))  #修改正常和癌症样品数???
+  names(SampleType)=colnames(rt)
+  ann=as.data.frame(SampleType)
+  
+  #画图
+  pdf(file="2.7_heatmap1_PC_LUAD.pdf")
+  pheatmap(rt1,                      #热图的数???
+           annotation=ann,
+           annotation_legend=TRUE,  # 显示注释
+           color = colorRampPalette(c("blue", "white","red"))(100), #设定颜色
+           cluster_rows =T,        #行聚???
+           cluster_cols = F,     #列聚类，可以看出样本之间的区分度
+           show_rownames = T,       # 显示行名
+           show_colnames = F,       # 显示列名
+           scale="row",             #以行来标准化，这个功能很不错
+           fontsize_row=3,          #行名字体大小
+           fontsize_col=5)          #列名字体大小
+  dev.off()
+}  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+load(file = "RNA_expr_vst_LUAD.Rda")
+######Step4--基因注释###############################
+#导入注释文件
+setwd("D:/R_code")
+library(tibble)
+load(file = "gtf_df.Rda")
+setwd("D:/training")
+#####################################
+#基因ID转换
+newData <- RNA_expr_vst %>% rownames_to_column("gene_id")      
+#mRNA_expr#####
+mRNA_expr <- gtf_df %>% 
+  dplyr::filter(type=="gene",gene_biotype=="protein_coding") %>% #筛选gene,和编码指???
+  dplyr::select(c(gene_name,gene_id,gene_biotype)) %>% 
+  dplyr::distinct() %>% #删除多余???
+  dplyr::inner_join(newData,by ="gene_id") 
+#去除重复基因
+expr <- mRNA_expr
+expr <- expr[!duplicated(expr$gene_name),]
+#保留gene_symbol
+mRNA_expr <- subset(expr,select = -c(gene_id,gene_biotype))
+#rownames(mRNA_expr)<-mRNA_expr[,1] #将数据框的第一列作为行???
+#mRNA_expr<-mRNA_expr[,-1] #将数据框的第一列删除，只留下剩余的列作为数???
+#保存
+save(mRNA_expr,file = "1_Expr_mRNA_LUAD.Rda")
+
+######Step5--ESTIMATE SCORE######################
