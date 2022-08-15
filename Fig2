@@ -1,0 +1,121 @@
+
+rm(list = ls())
+options(stringsAsFactors = F)
+setwd("~/project/0_Curoptosis")
+load("data/pancancer_mRNA_exprSet.Rdata")
+expr_tcga <- mRNA_exprSet
+load("data/panGTEX_mRNA_exprSet.Rdata")
+expr_gtex <- mRNA_exprSet
+
+rm(mRNA_exprSet)
+#Step-1#清理TCGA表达矩阵
+test <- expr_tcga[1:6,1:6]
+View(test)
+meta_tcga <- expr_tcga[,1:4]
+save(meta_tcga,file = "data/TCGA_pan_meta.rda")
+expr_tcga2 <- expr_tcga[-7801,]
+rownames(expr_tcga2) <- expr_tcga2$TCGA_id
+expr_tcga2 <- expr_tcga2[,5:19729]
+exprtcga <- data.frame(t(expr_tcga2))
+test <- exprtcga[1:6,1:6]
+View(test)
+saveRDS(exprtcga,file = "expr_tcga_tidy.rds")
+
+#Step-2#清理GTEX表达矩阵
+test <- expr_gtex[1:6,1:6]
+View(test)
+meta_gtex <- expr_gtex[,1:2]
+save(meta_gtex,file = "data/GTEX_meta.rda")
+
+rownames(expr_gtex) <- expr_gtex$sample
+expr_gtex <- expr_gtex[,3:19727]
+test <- expr_gtex[1:6,1:6]
+View(test)
+exprgtex <- data.frame(t(expr_gtex))
+test <- exprtcga[1:6,1:6]
+View(test)
+saveRDS(exprgtex,file = "expr_gtex_tidy.rds")
+
+
+#Step-3#整合TCGA和GTEX
+library(tidyverse)
+exprtcga2 <- rownames_to_column(exprtcga, var = "symbol")
+exprgtex2 <- rownames_to_column(exprgtex, var = "symbol")
+test <- exprgtex2[1:6,1:6]
+View(test)
+exprSet_int <- inner_join(exprtcga2,exprgtex2, by = "symbol")
+
+test <- exprSet_int[1:6,1:6]
+View(test)
+exprSet_int <- column_to_rownames(exprSet_int, var = "symbol")
+saveRDS(exprSet_int,file = "data/exprSet_int_tcga_gtex_tidy.rds")
+
+#Step-4提取PCa的meta信息,先提取TCGA的PRAD，然后提取GTEX的Prostate，最后合并
+library(dplyr)
+
+meta_tcga_pca <- filter(meta_tcga, type == "PRAD")
+meta_tcga_pca <- select(meta_tcga_pca,"TCGA_id","type")
+colnames(meta_tcga_pca) <- c("sample","type")
+head(meta_tcga_pca)
+
+meta_gtex_pca <- select(meta_gtex, type == "Prostate")
+
+meta <- merge(meta_tcga_pca,meta_gtex_pca, by = "sample",all = T)
+meta$group <- c(rep("normal",100),rep("tumor",440))
+meta <- select(meta,c("sample","group"))
+meta
+save(meta,file = "data/meta_540_prostate.rda")
+
+
+#Step-提取PCA表达矩阵
+exprSet_int <- readRDS("data/exprSet_int_tcga_gtex_tidy.rds")
+test <- exprSet_int[1:6,1:6]
+View(test)
+exprSet_int2 <- as.data.frame(t(exprSet_int))
+exprSet_int2 <- rownames_to_column(exprSet_int2, var = "sample")
+library(stringr)
+meta$sample <- str_replace_all(meta$sample,"-", ".")
+
+exprSet_prostate <- inner_join(meta,exprSet_int2,by="sample")
+test <- exprSet_prostate[1:6,1:6]
+View(test)
+
+saveRDS(exprSet_prostate,file = "exprSet_tcga_gtex_540_prostate.rds")
+save(meta,file = "data/metadata_540-prostate.rda")
+
+
+
+
+
+rm(list = ls())
+options(stringsAsFactors = F)
+library(tidyverse)
+
+
+exprSet_prostate <- readRDS("data/exprSet_tcga_gtex_540_prostate.rds")
+test <- exprSet_prostate[1:10,1:10]
+view(test)
+heatdata<- column_to_rownames(exprSet_prostate, var = "sample")
+
+metadata <- exprSet_prostate[,c(1,2)]
+
+#准备表达矩阵
+exprSet  <- exprSet_prostate %>% column_to_rownames(var = "sample")
+exprSet <- exprSet[,-1]
+exprSet <- as.data.frame(t(exprSet))
+exprSet <- rownames_to_column(exprSet, var = "symbol")
+test <- exprSet[1:10,1:10]
+
+view(test)
+
+E3_list <- read.csv("data/915-E3-list.txt",header = T)
+
+E3_exprSet <- left_join(E3_list,exprSet, by = "symbol")
+table(is.na(E3_exprSet$GTEX.139T6.1526.SM.5P9G6))
+E3_exprSet_filt <- na.omit(E3_exprSet)
+#914个E3连接酶，540个前列腺样本，100个正常，440肿瘤
+table(is.na(E3_exprSet_filt))
+save (E3_exprSet_filt,E3_list, file = "data/E3_exprSet_898E3_540pr.rda")
+
+
+
