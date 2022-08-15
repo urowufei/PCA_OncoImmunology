@@ -1,0 +1,178 @@
+rm(list=ls())
+options(stringsAsFactors = F)
+ #if (!requireNamespace("BiocManager", quietly=TRUE))
+    #install.packages("BiocManager")
+    BiocManager::install("TCGAbiolinks")
+    #BiocManager::install("rtracklayer")
+
+library(TCGAbiolinks)
+library(plyr)
+library(limma)
+library(biomaRt)
+library(SummarizedExperiment)    
+    library(dplyr)
+    library(tidyr) 
+    library(DT)
+   
+setwd("~/project/Cdc20_Figure1")
+
+getGDCprojects()$project_id
+
+
+request_cancer="PRAD";
+cancer_type=paste("TCGA",request_cancer,sep="-");
+print(cancer_type);
+
+
+TCGAbiolinks:::getProjectSummary( "TCGA-PRAD")
+
+#ʹ??TCGA?ٴ???Ϣ????ר?ô???2_TCGA__download_clinical_info.r
+clinical <- GDCquery_clinic(project = cancer_type, type = "clinical")
+write.csv(clinical,file = paste(cancer_type,"clinical.csv",sep = "-"))
+save(clinical, file = ("data/clinical.Rda"))
+
+ ######
+query_exp <- GDCquery(project       = cancer_type, 
+                  data.category = "Transcriptome Profiling", 
+                  data.type     = "Gene Expression Quantification", 
+                  workflow.type = "HTSeq - Counts");   # raw count 
+query_exp
+#samplesDown <- getResults(query_exp,cols=c("data.type","barcode","sample.type"))
+
+GDCdownload(query = query_exp, method = "api", files.per.chunk = 100);
+
+data_exp <- GDCprepare(query = query_exp)
+count_matrix=as.data.frame(assay(data_exp))
+#save(count_matrix, file = paste(cancer_type,"Counts.Rda"))
+save(count_matrix, file = ("data/PRAD_counts.Rda"))
+write.csv(count_matrix,file = paste(cancer_type,"Counts.csv",sep = "-"))
+########################################################################
+########################################################################
+#BiocManager::install("rtracklayer")
+#library(rtracklayer)
+#gtf1 <- rtracklayer::import('resource/Homo_sapiens.GRCh38.99.chr.gtf')
+#gtf_df <- as.data.frame(gtf1)
+#dim(gtf_df)
+#save(gtf_df,file = "gtf_df.Rda")
+######################################
+#setwd("S:/Training/2021-CJ-TCGA-RCC")
+library(tibble)
+load(file = "resource/gtf_df.Rda")
+test <- gtf_df[1:5,]
+View(test)
+load(file = "data/PRAD_counts.Rda")
+expr = count_matrix
+test <- expr[1:5,1:5]
+
+expr <-  expr %>% rownames_to_column("gene_id")
+
+######1
+mRNA_exprSet <- gtf_df %>% 
+  dplyr::filter(type=="gene",gene_biotype=="protein_coding") %>% #ɸѡgene,?ͱ???ָ??
+  dplyr::select(c(gene_name,gene_id,gene_biotype)) %>% 
+  dplyr::inner_join(expr,by ="gene_id") %>% 
+  tidyr::unite(gene_id,gene_name,gene_id,gene_biotype,sep = " | ")
+save(mRNA_exprSet,file = "data/mRNA_exprSet_PRAD.Rda")
+ 
+mRNA_exprSet [1:3,1:3]
+##############
+
+mRNA_exprSet <- mRNA_exprSet %>%
+  tidyr::separate(gene_id, c("gene_name","gene_id","gene_biotype"),
+                  sep = " | ")
+
+mRNA_exprSet <- mRNA_exprSet[,-(2:3)]
+
+index <- duplicated(mRNA_exprSet$gene_name)
+mRNA_exprSet <- mRNA_exprSet[!index,]
+row.names(mRNA_exprSet) <- mRNA_exprSet$gene_name
+mRNA_exprSet$gene_name <- NULL
+mRNA_exprSet [1:3,1:3]
+
+save(mRNA_exprSet,file = "data/mRNA_sybol_exprSet_PRAD.Rda")
+################################################################
+
+#安装R包###
+#if (!requireNamespace("BiocManager", quietly=TRUE))
+  install.packages("BiocManager")
+#BiocManager::install("TCGAbiolinks")
+#BiocManager::install("rtracklayer")
+
+rm(list=ls())
+options(stringsAsFactors = F)
+library(TCGAbiolinks)
+library(dplyr)
+library(tidyr)    
+library(DT)
+library(SummarizedExperiment)
+setwd("~/project/Cdc20_Figure1")
+
+request_cancer="PRAD";
+cancer_type=paste("TCGA",request_cancer,sep="-");
+print(cancer_type);
+
+query <- GDCquery(project = cancer_type, 
+                  data.category = "Clinical", 
+                  file.type = "xml")
+GDCdownload(query)
+clinical <- GDCprepare_clinic(query, clinical.info = "patient")
+
+
+
+clinical_trait <- clinical  %>%
+  dplyr::select(bcr_patient_barcode,gender,vital_status,                            
+                days_to_death,days_to_last_followup,race_list,
+                person_neoplasm_cancer_status,age_at_initial_pathologic_diagnosis,
+                #neoplasm_histologic_grade = 'Grade',
+                stage_event_pathologic_stage,             
+                stage_event_tnm_categories  ) %>%
+  distinct( bcr_patient_barcode, .keep_all = TRUE)  
+
+
+#整理死亡患者的临床信息
+dead_patient <- clinical_trait  %>%
+  dplyr::filter(vital_status == 'Dead') %>%
+  dplyr::select(-days_to_last_followup) %>%
+  reshape::rename(c(bcr_patient_barcode = 'Barcode',
+                    gender = 'Gender',
+                    vital_status = 'OS',
+                    days_to_death='OS.Time',
+                    race_list = 'Race',
+                    person_neoplasm_cancer_status='cancer_status',
+                    age_at_initial_pathologic_diagnosis = 'Age',
+                    #neoplasm_histologic_grade = 'Grade',
+                    stage_event_pathologic_stage = 'Stage',
+                    stage_event_tnm_categories = 'TNM' )) %>%
+  mutate(OS=ifelse(OS=='Dead',1,0))%>%
+  mutate(OS.Time=OS.Time/365)
+
+
+
+#整理生存患者的临床信息
+alive_patient <- clinical_trait %>%
+  dplyr::filter(vital_status == 'Alive') %>%
+  dplyr::select(-days_to_death) %>%
+  reshape::rename(c(bcr_patient_barcode = 'Barcode',
+                    gender = 'Gender',
+                    vital_status = 'OS',
+                    days_to_last_followup='OS.Time',
+                    race_list = 'Race',
+                    person_neoplasm_cancer_status='cancer_status',
+                    age_at_initial_pathologic_diagnosis = 'Age',
+                    #neoplasm_histologic_grade = 'Grade',
+                    stage_event_pathologic_stage = 'Stage',
+                    stage_event_tnm_categories = 'TNM' )) %>%
+  mutate(OS=ifelse(OS=='Dead',1,0))%>%
+  mutate(OS.Time=OS.Time/365)
+
+#合并两类患者，得到PCa的临床信息
+survival_data <- rbind(dead_patient,alive_patient)
+
+write.csv(survival_data , file = 'PRAD_survival.txt');
+
+
+##############################
+
+
+
+
